@@ -1,0 +1,339 @@
+/*
+ * CS 440 Project 2 — C++ TEMPLATE (std::thread)
+ * Name(s):
+ * Date:
+ *
+ * Goal: Implement 2.a / 2.b / 2.c so that EACH experiment creates/destroys
+ * exactly N_TOTAL threads (including all parent/initial/child/grandchild threads).
+ *
+ * This file includes:
+ *  - skeleton runners for 2.a, 2.b, 2.c (non-batched)
+ *  - skeleton runners for batching fallback
+ *
+ * Students: Fill in TODO blocks. Keep printing sparse.
+ *
+ * Build (example):
+ *   g++ -O2 -std=c++17 -pthread project2_template.cpp -o project2
+ *
+ * Note: This template uses std::thread. If you use a different threading library,
+ * document it in your report.
+ */
+
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <iostream>
+#include <thread>
+#include <vector>
+#include <algorithm>
+
+// ======= Fixed baseline (A, B, C must match) =======
+static constexpr int N_TOTAL = 5000;
+
+// ======= 2.b parameters (must total exactly 5000) =======
+// TODO: verify math: parents + parents*childrenPerParent == 5000
+static constexpr int B_PARENTS = 50;
+static constexpr int B_CHILDREN_PER_PARENT = 99;
+
+// ======= 2.c parameters (must total exactly 5000) =======
+// TODO: verify math:
+// initials + initials*childrenPerInitial + initials*childrenPerInitial*grandchildrenPerChild == 5000
+static constexpr int C_INITIALS = 20;
+static constexpr int C_CHILDREN_PER_INITIAL = 3;
+static constexpr int C_GRANDCHILDREN_PER_CHILD = 82;
+
+// ======= Batching knobs (reduce concurrency if needed) =======
+static constexpr int A_BATCH_SIZE = 25;
+static constexpr int B_CHILD_BATCH_SIZE = 25;
+static constexpr int C_GRANDCHILD_BATCH_SIZE = 25;
+
+// ======= Counters =======
+static std::atomic<int> created{0};
+static std::atomic<int> destroyed{0};
+
+// ============================================================
+// Timing helper
+// ============================================================
+// TODO: If steady_clock is not available on your system, use an alternative.
+static long long now_ns() {
+    using namespace std::chrono;
+    return (long long)duration_cast<nanoseconds>(
+        steady_clock::now().time_since_epoch()
+    ).count();
+}
+
+static void reset_counts() {
+    created.store(0, std::memory_order_relaxed);
+    destroyed.store(0, std::memory_order_relaxed);
+}
+
+static void print_summary(const char* label, long long start_ns, long long end_ns) {
+    double elapsed_ms = (end_ns - start_ns) / 1e6;
+    std::cout << label << " elapsed: " << elapsed_ms << " ms\n";
+    std::cout << "Threads created:   " << created.load(std::memory_order_relaxed) << "\n";
+    std::cout << "Threads destroyed: " << destroyed.load(std::memory_order_relaxed) << "\n";
+}
+
+// ============================================================
+// TODO: optional sparse logging helper
+// ============================================================
+// static std::atomic<int> print_ticker{0};
+// static const int PRINT_EVERY = 500;
+// static void maybe_log(const char *msg) { ... }
+
+// ============================================================
+// Thread stubs (students must define what each thread does)
+// ============================================================
+static void flat_worker(/* optional args */) {
+    // TODO: minimal work
+    // TODO: ensure destroyed increments when thread exits
+    destroyed.fetch_add(1, std::memory_order_relaxed);
+}
+
+// ============================================================
+// 2.a — Flat (no batching)
+// ============================================================
+static void run2a_flat_no_batching() {
+    std::cout << "\n=== 2.a Flat (no batching) ===\n";
+    long long start = now_ns();
+
+    // TODO: allocate std::vector<std::thread> of size N_TOTAL (reserve)
+    // TODO: for i in 0..N_TOTAL-1:
+    //   - created.fetch_add(1)
+    //   - spawn thread (flat_worker)
+    // TODO: join all threads (optionally reverse order)
+    // TODO: clear/free any allocated memory
+
+    long long end = now_ns();
+    print_summary("2.a", start, end);
+
+    // TODO: verify created == destroyed == N_TOTAL
+}
+
+// ============================================================
+// 2.a — Flat (batched)
+// ============================================================
+static void run2a_flat_batched(int batch_size) {
+    std::cout << "\n=== 2.a Flat (BATCHED), batch_size=" << batch_size << " ===\n";
+    long long start = now_ns();
+
+    // TODO: create threads in batches:
+    // next_id = 1
+    // while next_id <= N_TOTAL:
+    //   - create std::vector<std::thread> batch (size up to batch_size)
+    //   - create up to batch_size threads, start them
+    //   - join that batch
+    // end while
+
+    long long end = now_ns();
+    print_summary("2.a(batched)", start, end);
+
+    // TODO: verify created == destroyed == N_TOTAL
+}
+
+// ============================================================
+// 2.b — Two-level hierarchy (parent -> children)
+// ============================================================
+
+struct parent_arg_t {
+    int parent_id;
+    // TODO: include any other fields needed
+};
+
+static void parent_worker_no_batching(parent_arg_t pa) {
+    (void)pa;
+
+    // TODO: parent creates B_CHILDREN_PER_PARENT children
+    // TODO: for each child:
+    //   - created.fetch_add(1)
+    //   - spawn child thread
+    // TODO: join all children
+    // TODO: parent increments destroyed when finishing
+    destroyed.fetch_add(1, std::memory_order_relaxed);
+
+    // NOTE: no heap free needed if pa passed by value;
+    // TODO: if you allocate, free it.
+}
+
+static void run2b_two_level_no_batching() {
+    std::cout << "\n=== 2.b Two-level (no batching) ===\n";
+    long long start = now_ns();
+
+    // TODO: allocate std::vector<std::thread> parents size B_PARENTS (reserve)
+    // TODO: for parentId in 1..B_PARENTS:
+    //   - created.fetch_add(1) // parent
+    //   - prepare parent_arg_t (heap or value)
+    //   - spawn parent thread (parent_worker_no_batching)
+    // TODO: join all parents
+    // TODO: clear/free any allocated memory
+
+    long long end = now_ns();
+    print_summary("2.b", start, end);
+
+    // TODO: verify created == destroyed == N_TOTAL
+}
+
+// ============================================================
+// 2.b — Two-level hierarchy (batched children, if needed)
+// ============================================================
+
+struct parent_batch_arg_t {
+    int parent_id;
+    int child_batch_size;
+};
+
+static void parent_worker_batched(parent_batch_arg_t pa) {
+    (void)pa;
+
+    // TODO: inside each parent:
+    // nextChild = 1
+    // while nextChild <= B_CHILDREN_PER_PARENT:
+    //   - create up to child_batch_size children
+    //   - join that batch
+    // end while
+    // parent increments destroyed
+    destroyed.fetch_add(1, std::memory_order_relaxed);
+
+    // TODO: free pa if allocated on heap
+}
+
+static void run2b_two_level_batched(int child_batch_size) {
+    std::cout << "\n=== 2.b Two-level (BATCHED children), child_batch_size=" << child_batch_size << " ===\n";
+    long long start = now_ns();
+
+    // TODO: same as run2b_two_level_no_batching, but use parent_worker_batched
+    // and pass child_batch_size into each parent.
+
+    long long end = now_ns();
+    print_summary("2.b(batched)", start, end);
+
+    // TODO: verify created == destroyed == N_TOTAL
+}
+
+// ============================================================
+// 2.c — Three-level hierarchy (initial -> child -> grandchild)
+// ============================================================
+
+struct initial_arg_t {
+    int initial_id;
+    // TODO: include any other fields needed
+};
+
+struct child_arg_t {
+    int initial_id;
+    int child_id;
+    int grand_batch_size; // optional for batched grandchildren
+};
+
+static void grandchild_worker(/* optional args */) {
+    // TODO: minimal work
+    destroyed.fetch_add(1, std::memory_order_relaxed);
+}
+
+static void child_worker_no_batching(child_arg_t ca) {
+    (void)ca;
+
+    // TODO: create C_GRANDCHILDREN_PER_CHILD grandchildren
+    // TODO: join all grandchildren
+    // TODO: increment destroyed for child
+    destroyed.fetch_add(1, std::memory_order_relaxed);
+
+    // TODO: free ca if allocated on heap
+}
+
+static void initial_worker_no_batching(initial_arg_t ia) {
+    (void)ia;
+
+    // TODO: create C_CHILDREN_PER_INITIAL child threads
+    //   - each child creates grandchildren (no batching)
+    // TODO: join all children
+    // TODO: increment destroyed for initial
+    destroyed.fetch_add(1, std::memory_order_relaxed);
+
+    // TODO: free ia if allocated on heap
+}
+
+static void run2c_three_level_no_batching() {
+    std::cout << "\n=== 2.c Three-level (no batching) ===\n";
+    long long start = now_ns();
+
+    // TODO: allocate std::vector<std::thread> initials size C_INITIALS (reserve)
+    // TODO: for initialId in 1..C_INITIALS:
+    //   - created.fetch_add(1) // initial
+    //   - prepare initial_arg_t
+    //   - spawn initial thread (initial_worker_no_batching)
+    // TODO: join all initials
+    // TODO: clear/free any allocated memory
+
+    long long end = now_ns();
+    print_summary("2.c", start, end);
+
+    // TODO: verify created == destroyed == N_TOTAL
+}
+
+// ============================================================
+// 2.c — Three-level hierarchy (batched grandchildren, if needed)
+// ============================================================
+
+static void child_worker_batched_grandchildren(child_arg_t ca) {
+    (void)ca;
+
+    // TODO: inside each child:
+    // nextGrand = 1
+    // while nextGrand <= C_GRANDCHILDREN_PER_CHILD:
+    //   - create up to grand_batch_size grandchildren
+    //   - join that batch
+    // end while
+    // increment destroyed for child
+    destroyed.fetch_add(1, std::memory_order_relaxed);
+
+    // TODO: free ca if allocated on heap
+}
+
+static void initial_worker_batched_grandchildren(initial_arg_t ia) {
+    (void)ia;
+
+    // TODO: create child threads; each child uses child_worker_batched_grandchildren
+    // TODO: join all children
+    // TODO: increment destroyed for initial
+    destroyed.fetch_add(1, std::memory_order_relaxed);
+
+    // TODO: free ia if allocated on heap
+}
+
+static void run2c_three_level_batched(int grand_batch_size) {
+    std::cout << "\n=== 2.c Three-level (BATCHED grandchildren), grand_batch_size=" << grand_batch_size << " ===\n";
+    long long start = now_ns();
+
+    // TODO: same as run2c_three_level_no_batching, but use initial_worker_batched_grandchildren
+    // and pass grand_batch_size to children via child_arg_t.
+
+    long long end = now_ns();
+    print_summary("2.c(batched)", start, end);
+
+    // TODO: verify created == destroyed == N_TOTAL
+}
+
+// ============================================================
+// main
+// ============================================================
+int main() {
+    // TODO: run 3 trials each and compute averages in your report.
+
+    reset_counts();
+    run2a_flat_no_batching();
+    // reset_counts();
+    // run2a_flat_batched(A_BATCH_SIZE);
+
+    reset_counts();
+    run2b_two_level_no_batching();
+    // reset_counts();
+    // run2b_two_level_batched(B_CHILD_BATCH_SIZE);
+
+    reset_counts();
+    run2c_three_level_no_batching();
+    // reset_counts();
+    // run2c_three_level_batched(C_GRANDCHILD_BATCH_SIZE);
+
+    return 0;
+}

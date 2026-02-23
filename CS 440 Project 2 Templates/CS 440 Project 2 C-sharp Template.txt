@@ -1,0 +1,251 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Threading;
+
+/*
+ * CS 440 Project 2 — C# TEMPLATE
+ * Name(s):
+ * Date:
+ *
+ * Goal: Implement 2.a / 2.b / 2.c so that EACH experiment creates/destroys
+ * exactly N_TOTAL threads (including all parent/initial/child/grandchild threads).
+ *
+ * This file includes:
+ *  - skeleton runners for 2.a, 2.b, 2.c (non-batched)
+ *  - skeleton runners for batching fallback
+ *
+ * Students: Fill in TODO blocks. Keep printing sparse.
+ */
+
+public class Project2ThreadTemplate
+{
+    // ======= Fixed baseline (A, B, C must match) =======
+    private const int N_TOTAL = 5000;
+
+    // ======= 2.b parameters (must total exactly 5000) =======
+    // TODO: verify math: parents + parents*childrenPerParent == 5000
+    private const int B_PARENTS = 50;
+    private const int B_CHILDREN_PER_PARENT = 99;
+
+    // ======= 2.c parameters (must total exactly 5000) =======
+    // TODO: verify math:
+    // initials + initials*childrenPerInitial + initials*childrenPerInitial*grandchildrenPerChild == 5000
+    private const int C_INITIALS = 20;
+    private const int C_CHILDREN_PER_INITIAL = 3;
+    private const int C_GRANDCHILDREN_PER_CHILD = 82;
+
+    // ======= Batching knobs (reduce concurrency if needed) =======
+    private const int A_BATCH_SIZE = 25;
+    private const int B_CHILD_BATCH_SIZE = 25;
+    private const int C_GRANDCHILD_BATCH_SIZE = 25;
+
+    // ======= Counters =======
+    private int _created = 0;
+    private int _destroyed = 0;
+
+    public static void Main(string[] args)
+    {
+        var t = new Project2ThreadTemplate();
+
+        // TODO: run 3 trials each and compute averages in your report.
+
+        t.ResetCounts();
+        t.Run2a_Flat_NoBatching();
+        // t.ResetCounts();
+        // t.Run2a_Flat_Batched(A_BATCH_SIZE);
+
+        t.ResetCounts();
+        t.Run2b_TwoLevel_NoBatching();
+        // t.ResetCounts();
+        // t.Run2b_TwoLevel_Batched(B_CHILD_BATCH_SIZE);
+
+        t.ResetCounts();
+        t.Run2c_ThreeLevel_NoBatching();
+        // t.ResetCounts();
+        // t.Run2c_ThreeLevel_Batched(C_GRANDCHILD_BATCH_SIZE);
+    }
+
+    // ============================================================
+    // 2.a — Flat (no batching)
+    // ============================================================
+    public void Run2a_Flat_NoBatching()
+    {
+        Console.WriteLine("\n=== 2.a Flat (no batching) ===");
+        var sw = Stopwatch.StartNew();
+
+        // TODO: create a List<Thread> sized N_TOTAL
+        // TODO: loop from 1..N_TOTAL:
+        //   - increment created counter (thread-safe)
+        //   - create a thread that does minimal work
+        //   - ensure destroyed counter increments when thread finishes
+        //   - start thread
+        //   - store thread handle
+        //
+        // TODO: join all threads (optionally reverse order)
+
+        sw.Stop();
+        PrintSummary("2.a", sw);
+
+        // TODO: verify created == destroyed == N_TOTAL; if not, fix your logic
+    }
+
+    // ============================================================
+    // 2.a — Flat (batched)
+    // ============================================================
+    public void Run2a_Flat_Batched(int batchSize)
+    {
+        Console.WriteLine($"\n=== 2.a Flat (BATCHED), batchSize={batchSize} ===");
+        var sw = Stopwatch.StartNew();
+
+        // TODO: create threads in batches:
+        // nextId = 1
+        // while nextId <= N_TOTAL:
+        //   - create up to batchSize threads, start them, store in batch list
+        //   - join all threads in the batch
+        // end while
+
+        sw.Stop();
+        PrintSummary("2.a(batched)", sw);
+
+        // TODO: verify created == destroyed == N_TOTAL
+    }
+
+    // ============================================================
+    // 2.b — Two-level hierarchy (no batching)
+    // Parents -> Children
+    // ============================================================
+    public void Run2b_TwoLevel_NoBatching()
+    {
+        Console.WriteLine("\n=== 2.b Two-level (no batching) ===");
+        var sw = Stopwatch.StartNew();
+
+        // TODO: create List<Thread> parentHandles
+        // TODO: for parentId in 1..B_PARENTS:
+        //   - increment created (for parent)
+        //   - create parent thread:
+        //       - create List<Thread> childHandles
+        //       - for childId in 1..B_CHILDREN_PER_PARENT:
+        //           - increment created (for child)
+        //           - create/start child thread (lineage parentId-childId if you print)
+        //           - ensure destroyed increments when child finishes
+        //           - store handle
+        //       - join all children
+        //       - increment destroyed when parent finishes
+        //   - start parent and store handle
+        //
+        // TODO: join all parents
+
+        sw.Stop();
+        PrintSummary("2.b", sw);
+
+        // TODO: verify created == destroyed == N_TOTAL
+    }
+
+    // ============================================================
+    // 2.b — Two-level hierarchy (batched children, if needed)
+    // ============================================================
+    public void Run2b_TwoLevel_Batched(int childBatchSize)
+    {
+        Console.WriteLine($"\n=== 2.b Two-level (BATCHED children), childBatchSize={childBatchSize} ===");
+        var sw = Stopwatch.StartNew();
+
+        // TODO: same as 2.b, but inside each parent:
+        // nextChild = 1
+        // while nextChild <= B_CHILDREN_PER_PARENT:
+        //   - create up to childBatchSize children, start them
+        //   - join that batch
+        // end while
+        // parent ends after all batches joined
+
+        sw.Stop();
+        PrintSummary("2.b(batched)", sw);
+
+        // TODO: verify created == destroyed == N_TOTAL
+    }
+
+    // ============================================================
+    // 2.c — Three-level hierarchy (no batching)
+    // Initial -> Child -> Grandchild
+    // ============================================================
+    public void Run2c_ThreeLevel_NoBatching()
+    {
+        Console.WriteLine("\n=== 2.c Three-level (no batching) ===");
+        var sw = Stopwatch.StartNew();
+
+        // TODO: create List<Thread> initialHandles
+        // TODO: for initialId in 1..C_INITIALS:
+        //   - increment created (initial)
+        //   - create initial thread:
+        //       - create List<Thread> childHandles
+        //       - for childId in 1..C_CHILDREN_PER_INITIAL:
+        //           - increment created (child)
+        //           - create child thread:
+        //               - create List<Thread> grandHandles
+        //               - for grandId in 1..C_GRANDCHILDREN_PER_CHILD:
+        //                   - increment created (grandchild)
+        //                   - create/start grandchild thread (lineage initial-child-grand)
+        //                   - ensure destroyed increments when grandchild finishes
+        //                   - store handle
+        //               - join all grandchild threads
+        //               - increment destroyed when child finishes
+        //           - start child and store handle
+        //       - join all children
+        //       - increment destroyed when initial finishes
+        //   - start initial and store handle
+        //
+        // TODO: join all initials
+
+        sw.Stop();
+        PrintSummary("2.c", sw);
+
+        // TODO: verify created == destroyed == N_TOTAL
+    }
+
+    // ============================================================
+    // 2.c — Three-level hierarchy (batched grandchildren, if needed)
+    // ============================================================
+    public void Run2c_ThreeLevel_Batched(int grandBatchSize)
+    {
+        Console.WriteLine($"\n=== 2.c Three-level (BATCHED grandchildren), grandBatchSize={grandBatchSize} ===");
+        var sw = Stopwatch.StartNew();
+
+        // TODO: same as 2.c, but inside each CHILD thread:
+        // nextGrand = 1
+        // while nextGrand <= C_GRANDCHILDREN_PER_CHILD:
+        //   - create up to grandBatchSize grandchild threads, start them
+        //   - join that batch
+        // end while
+        //
+        // (Optionally batch CHILD creation too, but not required.)
+
+        sw.Stop();
+        PrintSummary("2.c(batched)", sw);
+
+        // TODO: verify created == destroyed == N_TOTAL
+    }
+
+    // ============================================================
+    // Helpers
+    // ============================================================
+    private void ResetCounts()
+    {
+        _created = 0;
+        _destroyed = 0;
+    }
+
+    private void PrintSummary(string label, Stopwatch sw)
+    {
+        Console.WriteLine($"{label} elapsed: {sw.Elapsed.TotalMilliseconds:F3} ms");
+        Console.WriteLine($"Threads created:   {_created}");
+        Console.WriteLine($"Threads destroyed: {_destroyed}");
+    }
+
+    // TODO: Use Interlocked.Increment(ref _created) and Interlocked.Increment(ref _destroyed)
+    //       in your thread bodies (thread-safe counting).
+    //
+    // TODO: (Optional) add sparse logging helper:
+    // maybePrintEveryK("message", k)
+    //
+    // TODO: (Optional) ensure destroyed increments even if the thread body throws.
+}
