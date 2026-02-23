@@ -1,0 +1,250 @@
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * CS 440 Project 2 — Java TEMPLATE 
+ * Name(s):
+ * Date: 
+ *
+ * Goal: Implement 2.a / 2.b / 2.c so that EACH experiment creates/destroys
+ * exactly N_TOTAL threads (including all parent/initial/child/grandchild threads).
+ *
+ * This file includes:
+ *  - skeleton runners for 2.a, 2.b, 2.c (non-batched)
+ *  - skeleton runners for batching fallback
+ *
+ * Students: Fill in TODO blocks. Keep printing sparse.
+ */
+
+public class Project2ThreadTemplate {
+
+    // ======= Fixed baseline (A, B, C must match) =======
+    private static final int N_TOTAL = 5000;
+
+    // ======= 2.b parameters (must total exactly 5000) =======
+    // TODO: verify math: parents + parents*childrenPerParent == 5000
+    private static final int B_PARENTS = 50;
+    private static final int B_CHILDREN_PER_PARENT = 99;
+
+    // ======= 2.c parameters (must total exactly 5000) =======
+    // TODO: verify math: initials + initials*childrenPerInitial + initials*childrenPerInitial*grandchildrenPerChild == 5000
+    private static final int C_INITIALS = 20;
+    private static final int C_CHILDREN_PER_INITIAL = 3;
+    private static final int C_GRANDCHILDREN_PER_CHILD = 82;
+
+    // ======= Batching knobs (reduce concurrency if needed) =======
+    private static final int A_BATCH_SIZE = 25;
+    private static final int B_CHILD_BATCH_SIZE = 25;
+    private static final int C_GRANDCHILD_BATCH_SIZE = 25;
+
+    // ======= Counters =======
+    private final AtomicInteger created = new AtomicInteger(0);
+    private final AtomicInteger destroyed = new AtomicInteger(0);
+
+    public static void main(String[] args) throws InterruptedException {
+        Project2ThreadTemplate t = new Project2ThreadTemplate();
+
+        // TODO: run 3 trials each and compute averages in your report.
+
+        t.resetCounts();
+        t.run2a_flat_noBatching();
+        // t.resetCounts();
+        // t.run2a_flat_batched(A_BATCH_SIZE);
+
+        t.resetCounts();
+        t.run2b_twoLevel_noBatching();
+        // t.resetCounts();
+        // t.run2b_twoLevel_batched(B_CHILD_BATCH_SIZE);
+
+        t.resetCounts();
+        t.run2c_threeLevel_noBatching();
+        // t.resetCounts();
+        // t.run2c_threeLevel_batched(C_GRANDCHILD_BATCH_SIZE);
+    }
+
+    // ============================================================
+    // 2.a — Flat (no batching)
+    // ============================================================
+
+    public void run2a_flat_noBatching() throws InterruptedException {
+        System.out.println("\n=== 2.a Flat (no batching) ===");
+
+        long start = System.nanoTime();
+
+        // TODO: create a List<Thread> sized N_TOTAL
+        // TODO: loop from 1..N_TOTAL:
+        //   - increment created counter
+        //   - create a thread that does minimal work
+        //   - ensure destroyed counter increments when thread finishes
+        //   - start thread
+        //   - store thread handle
+        //
+        // TODO: join all threads (optionally reverse order)
+
+        long end = System.nanoTime();
+        printSummary("2.a", start, end);
+
+        // TODO: verify created == destroyed == N_TOTAL; if not, fix your logic
+    }
+
+    // ============================================================
+    // 2.a — Flat (batched)
+    // ============================================================
+
+    public void run2a_flat_batched(int batchSize) throws InterruptedException {
+        System.out.println("\n=== 2.a Flat (BATCHED), batchSize=" + batchSize + " ===");
+
+        long start = System.nanoTime();
+
+        // TODO: create threads in batches:
+        // nextId = 1
+        // while nextId <= N_TOTAL:
+        //   - create up to batchSize threads, start them, store in batch list
+        //   - join all threads in the batch
+        // end while
+
+        long end = System.nanoTime();
+        printSummary("2.a(batched)", start, end);
+
+        // TODO: verify created == destroyed == N_TOTAL
+    }
+
+    // ============================================================
+    // 2.b — Two-level hierarchy (no batching)
+    // Parents -> Children
+    // ============================================================
+
+    public void run2b_twoLevel_noBatching() throws InterruptedException {
+        System.out.println("\n=== 2.b Two-level (no batching) ===");
+
+        long start = System.nanoTime();
+
+        // TODO: create List<Thread> parentHandles
+        // TODO: for parentId in 1..B_PARENTS:
+        //   - increment created (for parent)
+        //   - create parent thread:
+        //       - create List<Thread> childHandles
+        //       - for childId in 1..B_CHILDREN_PER_PARENT:
+        //           - increment created (for child)
+        //           - create/start child thread (lineage parentId-childId if you print)
+        //           - ensure destroyed increments when child finishes
+        //           - store handle
+        //       - join all children
+        //       - increment destroyed when parent finishes
+        //   - start parent and store handle
+        //
+        // TODO: join all parents
+
+        long end = System.nanoTime();
+        printSummary("2.b", start, end);
+
+        // TODO: verify created == destroyed == N_TOTAL
+    }
+
+    // ============================================================
+    // 2.b — Two-level hierarchy (batched children, if needed)
+    // ============================================================
+
+    public void run2b_twoLevel_batched(int childBatchSize) throws InterruptedException {
+        System.out.println("\n=== 2.b Two-level (BATCHED children), childBatchSize=" + childBatchSize + " ===");
+
+        long start = System.nanoTime();
+
+        // TODO: same as 2.b, but inside each parent:
+        // nextChild = 1
+        // while nextChild <= B_CHILDREN_PER_PARENT:
+        //   - create up to childBatchSize children, start them
+        //   - join that batch
+        // end while
+        // parent ends after all batches joined
+
+        long end = System.nanoTime();
+        printSummary("2.b(batched)", start, end);
+
+        // TODO: verify created == destroyed == N_TOTAL
+    }
+
+    // ============================================================
+    // 2.c — Three-level hierarchy (no batching)
+    // Initial -> Child -> Grandchild
+    // ============================================================
+
+    public void run2c_threeLevel_noBatching() throws InterruptedException {
+        System.out.println("\n=== 2.c Three-level (no batching) ===");
+
+        long start = System.nanoTime();
+
+        // TODO: create List<Thread> initialHandles
+        // TODO: for initialId in 1..C_INITIALS:
+        //   - increment created (initial)
+        //   - create initial thread:
+        //       - create List<Thread> childHandles
+        //       - for childId in 1..C_CHILDREN_PER_INITIAL:
+        //           - increment created (child)
+        //           - create child thread:
+        //               - create List<Thread> grandHandles
+        //               - for grandId in 1..C_GRANDCHILDREN_PER_CHILD:
+        //                   - increment created (grandchild)
+        //                   - create/start grandchild thread (lineage initial-child-grand)
+        //                   - ensure destroyed increments when grandchild finishes
+        //                   - store handle
+        //               - join all grandchild threads
+        //               - increment destroyed when child finishes
+        //           - start child and store handle
+        //       - join all children
+        //       - increment destroyed when initial finishes
+        //   - start initial and store handle
+        //
+        // TODO: join all initials
+
+        long end = System.nanoTime();
+        printSummary("2.c", start, end);
+
+        // TODO: verify created == destroyed == N_TOTAL
+    }
+
+    // ============================================================
+    // 2.c — Three-level hierarchy (batched grandchildren, if needed)
+    // ============================================================
+
+    public void run2c_threeLevel_batched(int grandBatchSize) throws InterruptedException {
+        System.out.println("\n=== 2.c Three-level (BATCHED grandchildren), grandBatchSize=" + grandBatchSize + " ===");
+
+        long start = System.nanoTime();
+
+        // TODO: same as 2.c, but inside each CHILD thread:
+        // nextGrand = 1
+        // while nextGrand <= C_GRANDCHILDREN_PER_CHILD:
+        //   - create up to grandBatchSize grandchild threads, start them
+        //   - join that batch
+        // end while
+        //
+        // (Optionally batch CHILD creation too, but not required.)
+
+        long end = System.nanoTime();
+        printSummary("2.c(batched)", start, end);
+
+        // TODO: verify created == destroyed == N_TOTAL
+    }
+
+    // ============================================================
+    // Helpers
+    // ============================================================
+    private void resetCounts() {
+        created.set(0);
+        destroyed.set(0);
+    }
+
+    private void printSummary(String label, long startNs, long endNs) {
+        double elapsedMs = (endNs - startNs) / 1_000_000.0;
+        System.out.println(label + " elapsed: " + String.format("%.3f", elapsedMs) + " ms");
+        System.out.println("Threads created:   " + created.get());
+        System.out.println("Threads destroyed: " + destroyed.get());
+    }
+
+    // TODO: (Optional) add a sparse logging helper:
+    // maybePrintEveryK("message", k)
+    //
+    // TODO: (Optional) add a method to “safely” increment destroyed even on exceptions.
+}

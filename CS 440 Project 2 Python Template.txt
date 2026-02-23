@@ -1,0 +1,261 @@
+"""
+CS 440 Project 2 — Python TEMPLATE
+Name(s):
+Date:
+
+Goal: Implement 2.a / 2.b / 2.c so that EACH experiment creates/destroys
+exactly N_TOTAL threads (including all parent/initial/child/grandchild threads).
+
+This file includes:
+ - skeleton runners for 2.a, 2.b, 2.c (non-batched)
+ - skeleton runners for batching fallback
+
+Students: Fill in TODO blocks. Keep printing sparse.
+
+NOTE (important for writeup):
+Python threads are OS threads, but due to the GIL (Global Interpreter Lock), 
+CPU-bound code will not run in true parallel. This project is still valid 
+for measuring thread creation/destruction overhead.
+"""
+
+import threading
+import time
+from typing import List
+
+
+class Project2ThreadTemplate:
+    # ======= Fixed baseline (A, B, C must match) =======
+    N_TOTAL = 5000
+
+    # ======= 2.b parameters (must total exactly 5000) =======
+    # TODO: verify math: parents + parents*children_per_parent == 5000
+    B_PARENTS = 50
+    B_CHILDREN_PER_PARENT = 99
+
+    # ======= 2.c parameters (must total exactly 5000) =======
+    # TODO: verify math: initials + initials*children_per_initial + initials*children_per_initial*grandchildren_per_child == 5000
+    C_INITIALS = 20
+    C_CHILDREN_PER_INITIAL = 3
+    C_GRANDCHILDREN_PER_CHILD = 82
+
+    # ======= Batching knobs (reduce concurrency if needed) =======
+    A_BATCH_SIZE = 25
+    B_CHILD_BATCH_SIZE = 25
+    C_GRANDCHILD_BATCH_SIZE = 25
+
+    def __init__(self) -> None:
+        # ======= Counters =======
+        self.created = 0
+        self.destroyed = 0
+        self._lock = threading.Lock()
+
+        # TODO (optional): sparse logging knobs
+        # self.PRINT_EVERY = 500
+        # self._print_ticker = 0
+
+    # ============================================================
+    # Main
+    # ============================================================
+    def run_all(self) -> None:
+        # TODO: run 3 trials each and compute averages in your report.
+
+        self.reset_counts()
+        self.run2a_flat_no_batching()
+        # self.reset_counts()
+        # self.run2a_flat_batched(self.A_BATCH_SIZE)
+
+        self.reset_counts()
+        self.run2b_two_level_no_batching()
+        # self.reset_counts()
+        # self.run2b_two_level_batched(self.B_CHILD_BATCH_SIZE)
+
+        self.reset_counts()
+        self.run2c_three_level_no_batching()
+        # self.reset_counts()
+        # self.run2c_three_level_batched(self.C_GRANDCHILD_BATCH_SIZE)
+
+    # ============================================================
+    # 2.a — Flat (no batching)
+    # ============================================================
+    def run2a_flat_no_batching(self) -> None:
+        print("\n=== 2.a Flat (no batching) ===")
+        start_ns = time.perf_counter_ns()
+
+        # TODO: create a list to hold thread handles
+        threads: List[threading.Thread] = []
+
+        # TODO: loop from 1..N_TOTAL:
+        #   - increment created counter (use thread-safe increment)
+        #   - create a thread that does minimal work
+        #   - ensure destroyed counter increments when thread finishes
+        #   - start thread
+        #   - store thread handle
+        #
+        # TODO: join all threads (optionally reverse order)
+
+        end_ns = time.perf_counter_ns()
+        self.print_summary("2.a", start_ns, end_ns)
+
+        # TODO: verify created == destroyed == N_TOTAL; if not, fix your logic
+
+    # ============================================================
+    # 2.a — Flat (batched)
+    # ============================================================
+    def run2a_flat_batched(self, batch_size: int) -> None:
+        print(f"\n=== 2.a Flat (BATCHED), batch_size={batch_size} ===")
+        start_ns = time.perf_counter_ns()
+
+        # TODO: create threads in batches:
+        # next_id = 1
+        # while next_id <= N_TOTAL:
+        #   - create up to batch_size threads, start them, store in batch list
+        #   - join all threads in the batch
+        # end while
+
+        end_ns = time.perf_counter_ns()
+        self.print_summary("2.a(batched)", start_ns, end_ns)
+
+        # TODO: verify created == destroyed == N_TOTAL
+
+    # ============================================================
+    # 2.b — Two-level hierarchy (no batching)
+    # Parents -> Children
+    # ============================================================
+    def run2b_two_level_no_batching(self) -> None:
+        print("\n=== 2.b Two-level (no batching) ===")
+        start_ns = time.perf_counter_ns()
+
+        # TODO: create list for parent thread handles
+        parents: List[threading.Thread] = []
+
+        # TODO: for parent_id in 1..B_PARENTS:
+        #   - increment created (parent)
+        #   - create parent thread target function:
+        #       - create list for child handles
+        #       - for child_id in 1..B_CHILDREN_PER_PARENT:
+        #           - increment created (child)
+        #           - create/start child thread (lineage parent_id-child_id if you print)
+        #           - ensure destroyed increments when child finishes
+        #           - store handle
+        #       - join all children
+        #       - increment destroyed when parent finishes
+        #   - start parent and store handle
+        #
+        # TODO: join all parents
+
+        end_ns = time.perf_counter_ns()
+        self.print_summary("2.b", start_ns, end_ns)
+
+        # TODO: verify created == destroyed == N_TOTAL
+
+    # ============================================================
+    # 2.b — Two-level hierarchy (batched children, if needed)
+    # ============================================================
+    def run2b_two_level_batched(self, child_batch_size: int) -> None:
+        print(f"\n=== 2.b Two-level (BATCHED children), child_batch_size={child_batch_size} ===")
+        start_ns = time.perf_counter_ns()
+
+        # TODO: same as 2.b, but inside each parent:
+        # next_child = 1
+        # while next_child <= B_CHILDREN_PER_PARENT:
+        #   - create up to child_batch_size children, start them
+        #   - join that batch
+        # end while
+        # parent ends after all batches joined
+
+        end_ns = time.perf_counter_ns()
+        self.print_summary("2.b(batched)", start_ns, end_ns)
+
+        # TODO: verify created == destroyed == N_TOTAL
+
+    # ============================================================
+    # 2.c — Three-level hierarchy (no batching)
+    # Initial -> Child -> Grandchild
+    # ============================================================
+    def run2c_three_level_no_batching(self) -> None:
+        print("\n=== 2.c Three-level (no batching) ===")
+        start_ns = time.perf_counter_ns()
+
+        # TODO: create list for initial thread handles
+        initials: List[threading.Thread] = []
+
+        # TODO: for initial_id in 1..C_INITIALS:
+        #   - increment created (initial)
+        #   - create initial thread target function:
+        #       - create list for child handles
+        #       - for child_id in 1..C_CHILDREN_PER_INITIAL:
+        #           - increment created (child)
+        #           - create child thread target function:
+        #               - create list for grandchild handles
+        #               - for grand_id in 1..C_GRANDCHILDREN_PER_CHILD:
+        #                   - increment created (grandchild)
+        #                   - create/start grandchild thread (lineage initial-child-grand)
+        #                   - ensure destroyed increments when grandchild finishes
+        #                   - store handle
+        #               - join all grandchildren
+        #               - increment destroyed when child finishes
+        #           - start child and store handle
+        #       - join all children
+        #       - increment destroyed when initial finishes
+        #   - start initial and store handle
+        #
+        # TODO: join all initials
+
+        end_ns = time.perf_counter_ns()
+        self.print_summary("2.c", start_ns, end_ns)
+
+        # TODO: verify created == destroyed == N_TOTAL
+
+    # ============================================================
+    # 2.c — Three-level hierarchy (batched grandchildren, if needed)
+    # ============================================================
+    def run2c_three_level_batched(self, grand_batch_size: int) -> None:
+        print(f"\n=== 2.c Three-level (BATCHED grandchildren), grand_batch_size={grand_batch_size} ===")
+        start_ns = time.perf_counter_ns()
+
+        # TODO: same as 2.c, but inside each CHILD thread:
+        # next_grand = 1
+        # while next_grand <= C_GRANDCHILDREN_PER_CHILD:
+        #   - create up to grand_batch_size grandchild threads, start them
+        #   - join that batch
+        # end while
+        #
+        # (Optionally batch CHILD creation too, but not required.)
+
+        end_ns = time.perf_counter_ns()
+        self.print_summary("2.c(batched)", start_ns, end_ns)
+
+        # TODO: verify created == destroyed == N_TOTAL
+
+    # ============================================================
+    # Helpers
+    # ============================================================
+    def reset_counts(self) -> None:
+        with self._lock:
+            self.created = 0
+            self.destroyed = 0
+            # TODO (optional): reset sparse print ticker
+
+    def inc_created(self) -> None:
+        # TODO: ensure increments are thread-safe (lock or other mechanism)
+        with self._lock:
+            self.created += 1
+
+    def inc_destroyed(self) -> None:
+        # TODO: ensure increments are thread-safe (lock or other mechanism)
+        with self._lock:
+            self.destroyed += 1
+
+    def print_summary(self, label: str, start_ns: int, end_ns: int) -> None:
+        elapsed_ms = (end_ns - start_ns) / 1_000_000.0
+        print(f"{label} elapsed: {elapsed_ms:.3f} ms")
+        print(f"Threads created:   {self.created}")
+        print(f"Threads destroyed: {self.destroyed}")
+
+    # TODO (optional): add a sparse logging helper:
+    # def maybe_print_every_k(self, msg: str, k: int) -> None:
+    #     ...
+
+
+if __name__ == "__main__":
+    Project2ThreadTemplate().run_all()
