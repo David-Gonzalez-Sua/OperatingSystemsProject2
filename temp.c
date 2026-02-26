@@ -45,6 +45,8 @@ enum { A_BATCH_SIZE = 25, B_CHILD_BATCH_SIZE = 25, C_GRANDCHILD_BATCH_SIZE = 25 
 static atomic_int g_created = 0;
 static atomic_int g_destroyed = 0;
 
+static atomic_int minimal_work_var = 0;
+
 // ------------------------------------------------------------
 // Timing (POSIX monotonic clock)
 // ------------------------------------------------------------
@@ -61,6 +63,8 @@ static long long now_ns(void) {
 static void reset_counts(void) {
     atomic_store(&g_created, 0);
     atomic_store(&g_destroyed, 0);
+
+    atomic_store(&minimal_work_var, 0);
 }
 
 static void print_summary(const char *label, long long start_ns, long long end_ns) {
@@ -91,8 +95,9 @@ static void *flat_worker(void *arg) {
     
     // optional minimal work
     volatile int x = 0;
-    x = 2;
+    x = 1;
     x++;
+    atomic_fetch_add(&minimal_work_var, x);
 
     // optional sparse print using id
     // format: Created threads:   1–100
@@ -160,7 +165,7 @@ static long long run2a_flat_no_batching(void) {
     print_summary("", start, end);
 
     // verify created == destroyed == N_TOTAL
-    die_pthread((atomic_load(&g_created) == N_TOTAL && atomic_load(&g_destroyed) == N_TOTAL) ? 0 : -1, "pthread_count_mismatch");
+    die_pthread((atomic_load(&g_created) == N_TOTAL && atomic_load(&g_destroyed) == N_TOTAL && atomic_load(&minimal_work_var)) > 0 ? 0 : -1, "pthread_count_mismatch");
 
     return end - start;
 }
@@ -193,45 +198,121 @@ static void run2a_flat_batched(int batch_size) {
 // ============================================================
 typedef struct {
     int parent_id;
-    // TODO: optional fields for sparse printing
-
+    // optional fields for sparse printing
 } parent_arg_t;
+
+typedef struct {
+    int parent_id;
+    int child_id;
+} child_2b_arg_t;
 
 static void *child_worker_2b(void *arg) {
     (void)arg;
-    // TODO: minimal work
+    // minimal work
+    volatile int x = 1;
+    if (atomic_load(&minimal_work_var) % 2 == 0) x++;
+    atomic_fetch_add(&minimal_work_var, x);
+
+    // sparse printing
+    // format: Parent 1 created children: 1-1 ... 1-25
+    child_2b_arg_t *fa = (child_2b_arg_t *)arg;
+    if (fa->child_id % 25 == 0) {
+        printf("Parent %d created children: %d-%d ... %d-%d\n",
+               fa->parent_id,
+               fa->parent_id, fa->child_id - 24,
+               fa->parent_id, fa->child_id);
+    }
+
     atomic_fetch_add(&g_destroyed, 1);
     return NULL;
 }
 
 static void *parent_worker_2b_no_batching(void *arg) {
+    // create B_CHILDREN_PER_PARENT child threads
+    
     parent_arg_t *pa = (parent_arg_t *)arg;
 
-    // TODO: create B_CHILDREN_PER_PARENT child threads
-    //   - allocate pthread_t children[B_CHILDREN_PER_PARENT]
-    //   - loop child_id: atomic_fetch_add(&g_created, 1); pthread_create(...)
-    // TODO: join all children
-    // TODO: free pa if heap-allocated
+    // allocate pthread_t children[B_CHILDREN_PER_PARENT]
+    pthread_t *this = malloc(sizeof(*this) * B_CHILDREN_PER_PARENT);
+
+    // allocate args array for threads
+    child_2b_arg_t *args = malloc(sizeof(*args) * B_CHILDREN_PER_PARENT);
+
+    // loop child_id: atomic_fetch_add(&g_created, 1); pthread_create(...)
+    for (int i = 0; i < B_CHILDREN_PER_PARENT; i++) {
+        args[i].parent_id = pa->parent_id;
+        args[i].child_id  = i + 1;
+        atomic_fetch_add(&g_created, 1);
+
+        int rc = pthread_create(&this[i], NULL, child_worker_2b, &args[i]);
+        die_pthread(rc, "pthread_create");
+    }
+
+    // join all children
+    for (int i = B_CHILDREN_PER_PARENT - 1; i >= 0; i--) {
+        int rc = pthread_join(this[i], NULL);
+        die_pthread(rc, "pthread_join");
+    }
+    printf("\nParent %d joined   children: %d-99 ... %d-1\n", pa->parent_id, pa->parent_id, pa->parent_id);
+    
+    // free allocations
+    free(pa);
+    free(this);
+    free(args);
 
     atomic_fetch_add(&g_destroyed, 1); // parent destroyed
     return NULL;
 }
 
-static void run2b_two_level_no_batching(void) {
-    printf("\n=== 2.b Two-level (no batching) ===\n");
-    long long start = now_ns();
+static long long run2b_two_level_no_batching(void) {
+    printf("\n=== B. Two-level (UNBATCHED) ===\n");
+    printf("Parents: %d\n", B_PARENTS);
+    printf("Children per parent: %d\n", B_CHILDREN_PER_PARENT);
+    printf("Output grouping: 25 threads\n");
+    printf("Total threads: 5000\n");
 
-    // TODO: allocate pthread_t parents[B_PARENTS]
-    // TODO: for parent_id in 1..B_PARENTS:
-    //   - atomic_fetch_add(&g_created, 1) // parent
-    //   - allocate parent_arg_t on heap or static storage
-    //   - pthread_create parent thread -> parent_worker_2b_no_batching
-    // TODO: join all parents
+    long long start = now_ns();
+    printf("Start time: %lld ns\n", start);
+
+    // allocate pthread_t parents[B_PARENTS]
+    pthread_t *parents = malloc(sizeof(*parents) * B_PARENTS);
+
+    // loop for parent_id in 1..B_PARENTS:
+    for (int i=0; i < B_PARENTS; i++) {
+        printf("Parent %d started\n", i);
+
+        // allocate parent_arg_t on heap or static storage
+        // allocating on heap
+        parent_arg_t *pa = malloc(sizeof(*pa));
+        pa->parent_id = i + 1;
+        
+        atomic_fetch_add(&g_created, 1); // parent
+
+        // pthread_create parent thread -> parent_worker_2b_no_batching
+        int rc = pthread_create(&parents[i], NULL, parent_worker_2b_no_batching, pa);
+        die_pthread(rc, "pthread_create");
+
+        printf("Parent %d completed\n", i);
+    }
+
+    // join all parents
+    for (int i = B_PARENTS - 1; i >= 0; i--) {
+        int rc = pthread_join(parents[i], NULL);
+        die_pthread(rc, "pthread_join");
+    }
+
+    free(parents);
 
     long long end = now_ns();
-    print_summary("2.b", start, end);
 
-    // TODO: verify created == destroyed == N_TOTAL
+    // print_summary("2.b", start, end);
+    printf("End time: %lld ns\n", end);
+    print_summary("", start, end);
+
+    // verify created == destroyed == N_TOTAL
+    die_pthread((atomic_load(&g_created) == N_TOTAL && atomic_load(&g_destroyed) == N_TOTAL && atomic_load(&minimal_work_var)) ? 0 : -1, "pthread_count_mismatch");
+
+    return end - start;
 }
 
 // ============================================================
@@ -395,15 +476,15 @@ int main(void) {
         total_threads_destroyed += atomic_load(&g_destroyed);
 
         reset_counts();
-        // avg_times_2b[i] = run2b_two_level_no_batching();
-        avg_times_2b[i] = 0;
+        // avg_times_2b[i] = 0;
+        avg_times_2b[i] = run2b_two_level_no_batching();
         // run2b_two_level_batched(B_CHILD_BATCH_SIZE);
         total_threads_created += atomic_load(&g_created);
         total_threads_destroyed += atomic_load(&g_destroyed);
 
         reset_counts();
-        // avg_times_2c[i] = run2c_three_level_no_batching();
         avg_times_2c[i] = 0;
+        // avg_times_2c[i] = run2c_three_level_no_batching();
         // run2c_three_level_batched(C_GRANDCHILD_BATCH_SIZE);
         total_threads_created += atomic_load(&g_created);
         total_threads_destroyed += atomic_load(&g_destroyed);
