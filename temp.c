@@ -444,12 +444,12 @@ static void *child_worker_2c_no_batching(void *arg) {
         die_pthread(rc, "pthread_create grandchild");
 
         // sparse printing for grandchildren creation
-        if ((i + 1) % 25 == 0 || i + 1 == C_GRANDCHILDREN_PER_CHILD) {
+        if ((i + 1) % 25 == 0 || i + 1 == C_GRANDCHILDREN_PER_CHILD || i == 81) {
             pthread_mutex_lock(&print_lock);
             int start = i + 1 - ((i + 1) % 25 == 0 ? 24 : ((i + 1) % 25) - 1);
 
-            snprintf(children_dict[(ca->initial_id - 1)][(ca->child_id - 1)][(i + 1) / 25], 128,
-                    "Initial %d Child %d created grandchildren: %d-%d-%d ... %d-%d-%d\n",
+            snprintf(children_dict[(ca->initial_id - 1)][(ca->child_id - 1)][(i / 25) + 1], 128,
+                    "Child %d-%d created grandchildren: %d-%d-%d ... %d-%d-%d\n",
                     ca->initial_id, ca->child_id,
                     ca->initial_id, ca->child_id, start,
                     ca->initial_id, ca->child_id, i + 1);
@@ -467,14 +467,14 @@ static void *child_worker_2c_no_batching(void *arg) {
     // sparse print for child joined grandchildren
     pthread_mutex_lock(&print_lock);
     snprintf(children_dict[(ca->initial_id - 1)][(ca->child_id - 1)][5], 128,
-            "Initial %d Child %d joined   grandchildren: %d-%d-%d ... %d-%d-%d\n",
+            "Child %d-%d joined   grandchildren: %d-%d-%d ... %d-%d-%d\n",
             ca->initial_id, ca->child_id,
             ca->initial_id, ca->child_id, 1,
             ca->initial_id, ca->child_id, C_GRANDCHILDREN_PER_CHILD);
     pthread_mutex_unlock(&print_lock);
 
     // free ca if heap-allocated
-    free(ca);
+    // free(ca);
     free(grandchildren);
     free(args);
 
@@ -500,9 +500,9 @@ static void *initial_worker_2c_no_batching(void *arg) {
 
         // sparse printing for child creation
         pthread_mutex_lock(&print_lock);
-        snprintf(initials_dict[ia->initial_id - 1][0], 128,
-                "Initial %d started and created child %d\n",
-                ia->initial_id, i + 1);
+        snprintf(children_dict[ia->initial_id - 1][i][0], 128,
+                "Initial %d created child: %d-%d\n\n",
+                ia->initial_id, ia->initial_id, i + 1);
         pthread_mutex_unlock(&print_lock);
     }
 
@@ -510,14 +510,14 @@ static void *initial_worker_2c_no_batching(void *arg) {
     for (int i = C_CHILDREN_PER_INITIAL - 1; i >= 0; i--) {
         int rc = pthread_join(children[i], NULL);
         die_pthread(rc, "pthread_join child");
-    }
 
-    // sparse print for initial joined children
-    pthread_mutex_lock(&print_lock);
-    snprintf(initials_dict[ia->initial_id - 1][1], 128,
-            "Initial %d completed and joined children 1-%d\n",
-            ia->initial_id, C_CHILDREN_PER_INITIAL);
-    pthread_mutex_unlock(&print_lock);
+        // sparse print for initial joined children
+        pthread_mutex_lock(&print_lock);
+        snprintf(children_dict[ia->initial_id - 1][i][6], 128,
+                "Child %d-%d completed\n",
+                ia->initial_id, i + 1);
+        pthread_mutex_unlock(&print_lock);
+    }
 
     // free ia if heap-allocated
     free(ia);
@@ -559,37 +559,27 @@ static long long run2c_three_level_no_batching(void) {
         die_pthread(rc, "pthread_create initial");
 
         pthread_mutex_lock(&print_lock);
-        snprintf(initials_dict[i][0], 128, "Initial %d Completed\n", i + 1);
+        snprintf(initials_dict[i][1], 128, "Initial %d Completed\n", i + 1);
         pthread_mutex_unlock(&print_lock);
+
+        // printf("Initial %d created\n", i + 1);
     }
     
+    // printf("\nAll initials created, now joining...\n");
     // join all initials
     for (int i = C_INITIALS - 1; i >= 0; i--) {
         int rc = pthread_join(initials[i], NULL);
         die_pthread(rc, "pthread_join initial");
+
+        // printf("Initial %d joined\n", i + 1);
     }
 
     free(initials);
 
     long long end = now_ns();
 
+    printf("Starting to print buffered output...\n");
     // print all buffered output in order
-    // for (int i = 0; i < C_INITIALS; i++) {
-    //     for (int j = 0; j < 2; j++) {
-    //         if (initials_dict[i][j][0] != '\0') {
-    //             printf("%s", initials_dict[i][j]);
-    //         }
-    //     }
-    //     for (int c = 0; c < C_CHILDREN_PER_INITIAL; c++) {
-    //         for (int j = 0; j < 7; j++) {
-    //             if (children_dict[i * C_CHILDREN_PER_INITIAL + c][j][0] != '\0') {
-    //                 printf("%s", children_dict[i * C_CHILDREN_PER_INITIAL + c][j]);
-    //             }
-    //         }
-    //     }
-    //     printf("\n");
-    // }
-
     for (int i = 0; i < C_INITIALS; i++) {
         printf("%s", initials_dict[i][0]);
         for (int c = 0; c < C_CHILDREN_PER_INITIAL; c++) {
@@ -604,7 +594,7 @@ static long long run2c_three_level_no_batching(void) {
     memset(children_dict, 0, sizeof(children_dict));
 
     // print_summary("2.c", start, end);
-    printf("End time: %lld ns\n", end);
+    printf("\nEnd time: %lld ns\n", end);
     print_summary("", start, end);
 
     // verify created == destroyed == N_TOTAL
