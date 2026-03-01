@@ -26,6 +26,8 @@
 #include <errno.h>
 #include <string.h>
 
+#include <stdarg.h>
+
 // ======= Fixed baseline (A, B, C must match) =======
 enum { N_TOTAL = 5000 };
 
@@ -46,6 +48,20 @@ static atomic_int g_created = 0;
 static atomic_int g_destroyed = 0;
 
 static atomic_int minimal_work_var = 0;
+
+// ======= Mutexes and other vars for a buffered sparse output =======
+static pthread_mutex_t print_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// buffer for sparse output : 50 parents -> 7 lines per -> "started", "created children"*4, "joined children", "completed"
+// max of 50 characters per line 
+static char output_dict[50][7][50];
+
+// 20 parents -> 3 children each -> 82 grandchildren each = 5000 threads total
+// buffer for sparse output : 2 lines per parent -> "started", "completed"
+// buffer for sparse output : 7 lines per child -> "created child", "created grandchildren"*4, "joined grandchildren", " child completed"
+// max of 128 characters per line 
+static char initials_dict[20][2][128];
+static char children_dict[20][3][7][128];
 
 // ------------------------------------------------------------
 // Timing (POSIX monotonic clock)
@@ -165,7 +181,7 @@ static long long run2a_flat_no_batching(void) {
     print_summary("", start, end);
 
     // verify created == destroyed == N_TOTAL
-    die_pthread((atomic_load(&g_created) == N_TOTAL && atomic_load(&g_destroyed) == N_TOTAL && atomic_load(&minimal_work_var)) > 0 ? 0 : -1, "pthread_count_mismatch");
+    die_pthread((atomic_load(&g_created) == N_TOTAL && atomic_load(&g_destroyed) == N_TOTAL && atomic_load(&minimal_work_var) > 0) ? 0 : -1, "pthread_count_mismatch");
 
     return end - start;
 }
@@ -208,20 +224,11 @@ typedef struct {
 
 static void *child_worker_2b(void *arg) {
     (void)arg;
+    
     // minimal work
     volatile int x = 1;
     if (atomic_load(&minimal_work_var) % 2 == 0) x++;
     atomic_fetch_add(&minimal_work_var, x);
-
-    // sparse printing
-    // format: Parent 1 created children: 1-1 ... 1-25
-    child_2b_arg_t *fa = (child_2b_arg_t *)arg;
-    if (fa->child_id % 25 == 0) {
-        printf("Parent %d created children: %d-%d ... %d-%d\n",
-               fa->parent_id,
-               fa->parent_id, fa->child_id - 24,
-               fa->parent_id, fa->child_id);
-    }
 
     atomic_fetch_add(&g_destroyed, 1);
     return NULL;
@@ -246,6 +253,19 @@ static void *parent_worker_2b_no_batching(void *arg) {
 
         int rc = pthread_create(&this[i], NULL, child_worker_2b, &args[i]);
         die_pthread(rc, "pthread_create");
+
+        // sparse printing for children creation
+        if ((i + 1) % 25 == 0 || i + 1 == B_CHILDREN_PER_PARENT) {
+            pthread_mutex_lock(&print_lock);
+            int start = i + 1 - ((i + 1) % 25 == 0 ? 24 : ((i + 1) % 25) - 1);
+
+            snprintf(output_dict[pa->parent_id - 1][(i + 1) / 25], 50, "Parent %d created children: %d-%d ... %d-%d\n",
+                    pa->parent_id,
+                    pa->parent_id, start,
+                    pa->parent_id, i + 1);
+
+            pthread_mutex_unlock(&print_lock);
+        }
     }
 
     // join all children
@@ -253,8 +273,15 @@ static void *parent_worker_2b_no_batching(void *arg) {
         int rc = pthread_join(this[i], NULL);
         die_pthread(rc, "pthread_join");
     }
-    printf("\nParent %d joined   children: %d-99 ... %d-1\n", pa->parent_id, pa->parent_id, pa->parent_id);
-    
+
+    // sparse print for parent joined children
+    pthread_mutex_lock(&print_lock);
+    snprintf(output_dict[pa->parent_id - 1][5], 50, "Parent %d joined   children: %d-99 ... %d-1\n",
+        pa->parent_id,
+        pa->parent_id,
+        pa->parent_id);
+    pthread_mutex_unlock(&print_lock);
+        
     // free allocations
     free(pa);
     free(this);
@@ -272,14 +299,16 @@ static long long run2b_two_level_no_batching(void) {
     printf("Total threads: 5000\n");
 
     long long start = now_ns();
-    printf("Start time: %lld ns\n", start);
+    printf("Start time: %lld ns\n\n", start);
 
     // allocate pthread_t parents[B_PARENTS]
     pthread_t *parents = malloc(sizeof(*parents) * B_PARENTS);
 
     // loop for parent_id in 1..B_PARENTS:
     for (int i=0; i < B_PARENTS; i++) {
-        printf("Parent %d started\n", i);
+        pthread_mutex_lock(&print_lock);
+        snprintf(output_dict[i][0], 50, "Parent %d started\n", i + 1);
+        pthread_mutex_unlock(&print_lock);
 
         // allocate parent_arg_t on heap or static storage
         // allocating on heap
@@ -292,7 +321,10 @@ static long long run2b_two_level_no_batching(void) {
         int rc = pthread_create(&parents[i], NULL, parent_worker_2b_no_batching, pa);
         die_pthread(rc, "pthread_create");
 
-        printf("Parent %d completed\n", i);
+        // printf("Parent %d completed\n", i);
+        pthread_mutex_lock(&print_lock);
+        snprintf(output_dict[i][6], 50, "Parent %d completed\n", i + 1);
+        pthread_mutex_unlock(&print_lock);
     }
 
     // join all parents
@@ -305,12 +337,25 @@ static long long run2b_two_level_no_batching(void) {
 
     long long end = now_ns();
 
+    // print all buffered output in order
+    for (int i = 0; i < B_PARENTS; i++) {
+        for (int j = 0; j < 7; j++) {
+            if (output_dict[i][j][0] != '\0') {
+                printf("%s", output_dict[i][j]);
+            }
+        }
+        printf("\n");
+    }
+
+    // RESET output_dict for next experiment
+    memset(output_dict, 0, sizeof(output_dict));
+
     // print_summary("2.b", start, end);
     printf("End time: %lld ns\n", end);
     print_summary("", start, end);
 
     // verify created == destroyed == N_TOTAL
-    die_pthread((atomic_load(&g_created) == N_TOTAL && atomic_load(&g_destroyed) == N_TOTAL && atomic_load(&minimal_work_var)) ? 0 : -1, "pthread_count_mismatch");
+    die_pthread((atomic_load(&g_created) == N_TOTAL && atomic_load(&g_destroyed) == N_TOTAL && atomic_load(&minimal_work_var) > 0) ? 0 : -1, "pthread_count_mismatch");
 
     return end - start;
 }
@@ -364,9 +409,20 @@ typedef struct {
     int grand_batch_size; // used for batched version
 } child_arg_t;
 
+typedef struct {
+    int initial_id;
+    int child_id;
+    int grandchild_id;
+} grandchild_arg_t;
+
 static void *grandchild_worker_2c(void *arg) {
     (void)arg;
-    // TODO: minimal work
+
+    // minimal work
+    volatile int x = 1;
+    if (atomic_load(&minimal_work_var) % 2 == 0) x++;
+    atomic_fetch_add(&minimal_work_var, x);
+
     atomic_fetch_add(&g_destroyed, 1);
     return NULL;
 }
@@ -374,9 +430,53 @@ static void *grandchild_worker_2c(void *arg) {
 static void *child_worker_2c_no_batching(void *arg) {
     child_arg_t *ca = (child_arg_t *)arg;
 
-    // TODO: create C_GRANDCHILDREN_PER_CHILD grandchild threads
-    // TODO: join all grandchildren
-    // TODO: free ca if heap-allocated
+    // create C_GRANDCHILDREN_PER_CHILD grandchild threads
+    pthread_t *grandchildren = malloc(sizeof(*grandchildren) * C_GRANDCHILDREN_PER_CHILD);
+    grandchild_arg_t *args = malloc(sizeof(*args) * C_GRANDCHILDREN_PER_CHILD);
+
+    for (int i = 0; i < C_GRANDCHILDREN_PER_CHILD; i++) {
+        args[i].initial_id = ca->initial_id;
+        args[i].child_id = ca->child_id;
+        args[i].grandchild_id = i + 1;
+        atomic_fetch_add(&g_created, 1);
+
+        int rc = pthread_create(&grandchildren[i], NULL, grandchild_worker_2c, &args[i]);
+        die_pthread(rc, "pthread_create grandchild");
+
+        // sparse printing for grandchildren creation
+        if ((i + 1) % 25 == 0 || i + 1 == C_GRANDCHILDREN_PER_CHILD) {
+            pthread_mutex_lock(&print_lock);
+            int start = i + 1 - ((i + 1) % 25 == 0 ? 24 : ((i + 1) % 25) - 1);
+
+            snprintf(children_dict[(ca->initial_id - 1)][(ca->child_id - 1)][(i + 1) / 25], 128,
+                    "Initial %d Child %d created grandchildren: %d-%d-%d ... %d-%d-%d\n",
+                    ca->initial_id, ca->child_id,
+                    ca->initial_id, ca->child_id, start,
+                    ca->initial_id, ca->child_id, i + 1);
+        
+            pthread_mutex_unlock(&print_lock);
+        }
+    }
+
+    // join all grandchildren
+    for (int i = C_GRANDCHILDREN_PER_CHILD - 1; i >= 0; i--) {
+        int rc = pthread_join(grandchildren[i], NULL);
+        die_pthread(rc, "pthread_join grandchild");
+    }
+
+    // sparse print for child joined grandchildren
+    pthread_mutex_lock(&print_lock);
+    snprintf(children_dict[(ca->initial_id - 1)][(ca->child_id - 1)][5], 128,
+            "Initial %d Child %d joined   grandchildren: %d-%d-%d ... %d-%d-%d\n",
+            ca->initial_id, ca->child_id,
+            ca->initial_id, ca->child_id, 1,
+            ca->initial_id, ca->child_id, C_GRANDCHILDREN_PER_CHILD);
+    pthread_mutex_unlock(&print_lock);
+
+    // free ca if heap-allocated
+    free(ca);
+    free(grandchildren);
+    free(args);
 
     atomic_fetch_add(&g_destroyed, 1); // child destroyed
     return NULL;
@@ -385,30 +485,132 @@ static void *child_worker_2c_no_batching(void *arg) {
 static void *initial_worker_2c_no_batching(void *arg) {
     initial_arg_t *ia = (initial_arg_t *)arg;
 
-    // TODO: create C_CHILDREN_PER_INITIAL child threads
+    // create C_CHILDREN_PER_INITIAL child threads
     //   - each child runs child_worker_2c_no_batching
-    // TODO: join all children
-    // TODO: free ia if heap-allocated
+    pthread_t *children = malloc(sizeof(*children) * C_CHILDREN_PER_INITIAL);
+    child_arg_t *args = malloc(sizeof(*args) * C_CHILDREN_PER_INITIAL);
+
+    for (int i = 0; i < C_CHILDREN_PER_INITIAL; i++) {
+        args[i].initial_id = ia->initial_id;
+        args[i].child_id = i + 1;
+        atomic_fetch_add(&g_created, 1);
+
+        int rc = pthread_create(&children[i], NULL, child_worker_2c_no_batching, &args[i]);
+        die_pthread(rc, "pthread_create child");
+
+        // sparse printing for child creation
+        pthread_mutex_lock(&print_lock);
+        snprintf(initials_dict[ia->initial_id - 1][0], 128,
+                "Initial %d started and created child %d\n",
+                ia->initial_id, i + 1);
+        pthread_mutex_unlock(&print_lock);
+    }
+
+    // join all children
+    for (int i = C_CHILDREN_PER_INITIAL - 1; i >= 0; i--) {
+        int rc = pthread_join(children[i], NULL);
+        die_pthread(rc, "pthread_join child");
+    }
+
+    // sparse print for initial joined children
+    pthread_mutex_lock(&print_lock);
+    snprintf(initials_dict[ia->initial_id - 1][1], 128,
+            "Initial %d completed and joined children 1-%d\n",
+            ia->initial_id, C_CHILDREN_PER_INITIAL);
+    pthread_mutex_unlock(&print_lock);
+
+    // free ia if heap-allocated
+    free(ia);
+    free(children);
+    free(args);
 
     atomic_fetch_add(&g_destroyed, 1); // initial destroyed
     return NULL;
 }
 
-static void run2c_three_level_no_batching(void) {
-    printf("\n=== 2.c Three-level (no batching) ===\n");
-    long long start = now_ns();
+static long long run2c_three_level_no_batching(void) {
+    printf("\n=== C. Three-level (UNBATCHED) ===\n");
+    printf("Initial threads: %d\n", C_INITIALS);
+    printf("Children per initial: %d\n", C_CHILDREN_PER_INITIAL);
+    printf("Grandchildren per child: %d\n", C_GRANDCHILDREN_PER_CHILD);
+    printf("Output grouping: 25 threads\n");
+    printf("Total threads: 5000\n");
 
-    // TODO: allocate pthread_t initials[C_INITIALS]
-    // TODO: for initial_id in 1..C_INITIALS:
+    long long start = now_ns();
+    printf("Start time: %lld ns\n\n", start);
+
+    // allocate pthread_t initials[C_INITIALS]
+    pthread_t *initials = malloc(sizeof(*initials) * C_INITIALS);
+
+    // for initial_id in 1..C_INITIALS:
     //   - atomic_fetch_add(&g_created, 1) // initial
     //   - allocate initial_arg_t
     //   - pthread_create -> initial_worker_2c_no_batching
-    // TODO: join all initials
+    for (int i = 0; i < C_INITIALS; i++) {
+        pthread_mutex_lock(&print_lock);
+        snprintf(initials_dict[i][0], 128, "Initial %d started\n", i + 1);
+        pthread_mutex_unlock(&print_lock);
+
+        initial_arg_t *ia = malloc(sizeof(*ia));
+        ia->initial_id = i + 1;
+        atomic_fetch_add(&g_created, 1);
+
+        int rc = pthread_create(&initials[i], NULL, initial_worker_2c_no_batching, ia);
+        die_pthread(rc, "pthread_create initial");
+
+        pthread_mutex_lock(&print_lock);
+        snprintf(initials_dict[i][0], 128, "Initial %d Completed\n", i + 1);
+        pthread_mutex_unlock(&print_lock);
+    }
+    
+    // join all initials
+    for (int i = C_INITIALS - 1; i >= 0; i--) {
+        int rc = pthread_join(initials[i], NULL);
+        die_pthread(rc, "pthread_join initial");
+    }
+
+    free(initials);
 
     long long end = now_ns();
-    print_summary("2.c", start, end);
 
-    // TODO: verify created == destroyed == N_TOTAL
+    // print all buffered output in order
+    // for (int i = 0; i < C_INITIALS; i++) {
+    //     for (int j = 0; j < 2; j++) {
+    //         if (initials_dict[i][j][0] != '\0') {
+    //             printf("%s", initials_dict[i][j]);
+    //         }
+    //     }
+    //     for (int c = 0; c < C_CHILDREN_PER_INITIAL; c++) {
+    //         for (int j = 0; j < 7; j++) {
+    //             if (children_dict[i * C_CHILDREN_PER_INITIAL + c][j][0] != '\0') {
+    //                 printf("%s", children_dict[i * C_CHILDREN_PER_INITIAL + c][j]);
+    //             }
+    //         }
+    //     }
+    //     printf("\n");
+    // }
+
+    for (int i = 0; i < C_INITIALS; i++) {
+        printf("%s", initials_dict[i][0]);
+        for (int c = 0; c < C_CHILDREN_PER_INITIAL; c++) {
+            for (int j = 0; j < 7; j++) {
+                printf("%s", children_dict[i][c][j]);
+            }
+        }
+    }
+
+    // RESET initials_dict and children_dict for next experiment
+    memset(initials_dict, 0, sizeof(initials_dict));
+    memset(children_dict, 0, sizeof(children_dict));
+
+    // print_summary("2.c", start, end);
+    printf("End time: %lld ns\n", end);
+    print_summary("", start, end);
+
+    // verify created == destroyed == N_TOTAL
+    die_pthread((atomic_load(&g_created) == N_TOTAL && atomic_load(&g_destroyed) == N_TOTAL && atomic_load(&minimal_work_var) > 0) ? 0 : -1, "pthread_count_mismatch");
+
+    return end - start;
 }
 
 // ============================================================
@@ -483,8 +685,8 @@ int main(void) {
         total_threads_destroyed += atomic_load(&g_destroyed);
 
         reset_counts();
-        avg_times_2c[i] = 0;
-        // avg_times_2c[i] = run2c_three_level_no_batching();
+        // avg_times_2c[i] = 0;
+        avg_times_2c[i] = run2c_three_level_no_batching();
         // run2c_three_level_batched(C_GRANDCHILD_BATCH_SIZE);
         total_threads_created += atomic_load(&g_created);
         total_threads_destroyed += atomic_load(&g_destroyed);
